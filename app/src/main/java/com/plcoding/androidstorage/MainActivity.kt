@@ -1,6 +1,7 @@
 package com.plcoding.androidstorage
 
 import android.Manifest
+import android.app.RecoverableSecurityException
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.pm.PackageManager
@@ -13,6 +14,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.launch
 import androidx.appcompat.app.AppCompatActivity
@@ -35,8 +37,11 @@ class MainActivity : AppCompatActivity() {
     private var readPermissionGranted = false
     private var writePermissionGranted = false
     private lateinit var permissionsLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var intentSenderLauncher: ActivityResultLauncher<IntentSenderRequest>
 
     private lateinit var contentObserver: ContentObserver
+
+    private var deletedImageUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,12 +65,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         externalStoragePhotoAdapter = SharedPhotoAdapter {
-
+            lifecycleScope.launch {
+                deletePhotoFromExternalStorage(it.contentUri)
+                deletedImageUri = it.contentUri
+            }
         }
         setupExternalStorageRecyclerView()
         initContentObserver()
-
-
 
         permissionsLauncher =
             registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
@@ -73,6 +79,7 @@ class MainActivity : AppCompatActivity() {
                     permissions[Manifest.permission.READ_EXTERNAL_STORAGE] ?: readPermissionGranted
                 writePermissionGranted = permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE]
                     ?: writePermissionGranted
+
 
                 if (readPermissionGranted) {
                     loadPhotosFromExternalStorageIntoRecyclerView()
@@ -82,6 +89,19 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         updateOrRequestPermissions()
+
+        intentSenderLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+            if(it.resultCode == RESULT_OK) {
+                if(Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                    lifecycleScope.launch {
+                        deletePhotoFromExternalStorage(deletedImageUri ?: return@launch)
+                    }
+                }
+                Toast.makeText(this@MainActivity, "Photo deleted successfully", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity, "Photo couldn't be deleted", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicturePreview()) {
             lifecycleScope.launch {
@@ -107,7 +127,6 @@ class MainActivity : AppCompatActivity() {
                         .show()
                 }
             }
-
         }
 
         binding.btnTakePhoto.setOnClickListener {
@@ -132,6 +151,30 @@ class MainActivity : AppCompatActivity() {
             true,
             contentObserver
         )
+    }
+
+    private suspend fun deletePhotoFromExternalStorage(photoUri: Uri) {
+        withContext(Dispatchers.IO) {
+            try {
+                contentResolver.delete(photoUri, null, null)
+            } catch (e: SecurityException) {
+                val intentSender = when {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                        MediaStore.createDeleteRequest(contentResolver, listOf(photoUri)).intentSender
+                    }
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                        val recoverableSecurityException = e as? RecoverableSecurityException
+                        recoverableSecurityException?.userAction?.actionIntent?.intentSender
+                    }
+                    else -> null
+                }
+                intentSender?.let { sender ->
+                    intentSenderLauncher.launch(
+                        IntentSenderRequest.Builder(sender).build()
+                    )
+                }
+            }
+        }
     }
 
     private suspend fun loadPhotosFromExternalStorage(): List<SharedStoragePhoto> {
