@@ -10,7 +10,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.provider.MediaStore
 import android.widget.Toast
@@ -18,10 +17,9 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.launch
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.RecyclerView
-import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import com.plcoding.androidstorage.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -53,11 +51,16 @@ class MainActivity : AppCompatActivity() {
         internalStoragePhotoAdapter = InternalStoragePhotoAdapter {
             lifecycleScope.launch {
                 val isDeletionSuccessful = deletePhotoFromInternalStorage(it.name)
-                if(isDeletionSuccessful) {
+                if (isDeletionSuccessful) {
                     loadPhotosFromInternalStorageIntoRecyclerView()
-                    Toast.makeText(this@MainActivity, "Photo successfully deleted", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Photo successfully deleted",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 } else {
-                    Toast.makeText(this@MainActivity, "Failed to delete photo", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Failed to delete photo", Toast.LENGTH_SHORT)
+                        .show()
                 }
             }
         }
@@ -70,16 +73,21 @@ class MainActivity : AppCompatActivity() {
         setupExternalStorageRecyclerView()
         initContentObserver()
 
-        permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-            readPermissionGranted = permissions[Manifest.permission.READ_EXTERNAL_STORAGE] ?: readPermissionGranted
-            writePermissionGranted = permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE] ?: writePermissionGranted
+        permissionsLauncher =
+            registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+                readPermissionGranted =
+                    permissions[Manifest.permission.READ_EXTERNAL_STORAGE] ?: readPermissionGranted
+                writePermissionGranted = permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE]
+                    ?: writePermissionGranted
 
-            if(readPermissionGranted) {
-                loadPhotosFromExternalStorageIntoRecyclerView()
-            } else {
-                Toast.makeText(this, "Can't read files without permission.", Toast.LENGTH_LONG).show()
+
+                if (readPermissionGranted) {
+                    loadPhotosFromExternalStorageIntoRecyclerView()
+                } else {
+                    Toast.makeText(this, "Can't read files without permission.", Toast.LENGTH_LONG)
+                        .show()
+                }
             }
-        }
         updateOrRequestPermissions()
 
         intentSenderLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
@@ -100,16 +108,23 @@ class MainActivity : AppCompatActivity() {
                 val isPrivate = binding.switchPrivate.isChecked
                 val isSavedSuccessfully = when {
                     isPrivate -> savePhotoToInternalStorage(UUID.randomUUID().toString(), it)
-                    writePermissionGranted -> savePhotoToExternalStorage(UUID.randomUUID().toString(), it)
+                    writePermissionGranted -> savePhotoToExternalStorage(
+                        UUID.randomUUID().toString(), it
+                    )
                     else -> false
                 }
-                if(isPrivate) {
+                if (isPrivate) {
                     loadPhotosFromInternalStorageIntoRecyclerView()
                 }
-                if(isSavedSuccessfully) {
-                    Toast.makeText(this@MainActivity, "Photo saved successfully", Toast.LENGTH_SHORT).show()
+                if (isSavedSuccessfully) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Photo saved successfully",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 } else {
-                    Toast.makeText(this@MainActivity, "Failed to save photo", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Failed to save photo", Toast.LENGTH_SHORT)
+                        .show()
                 }
             }
         }
@@ -126,7 +141,7 @@ class MainActivity : AppCompatActivity() {
     private fun initContentObserver() {
         contentObserver = object : ContentObserver(null) {
             override fun onChange(selfChange: Boolean) {
-                if(readPermissionGranted) {
+                if (readPermissionGranted) {
                     loadPhotosFromExternalStorageIntoRecyclerView()
                 }
             }
@@ -171,32 +186,50 @@ class MainActivity : AppCompatActivity() {
             val projection = arrayOf(
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.DATE_ADDED,
                 MediaStore.Images.Media.WIDTH,
                 MediaStore.Images.Media.HEIGHT,
             )
             val photos = mutableListOf<SharedStoragePhoto>()
+            val selection = "${MediaStore.Images.Media.DATE_ADDED} >= ?"
+            val selectionArgs = arrayOf(
+                dateToTimestamp(day = 20, month = 6, year = 2021).toString()
+            )
             contentResolver.query(
                 collection,
                 projection,
-                null,
-                null,
-                "${MediaStore.Images.Media.DISPLAY_NAME} ASC"
+                selection,
+                selectionArgs,
+                "${MediaStore.Images.Media.DATE_ADDED} DESC"
             )?.use { cursor ->
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                val displayNameColumn =
+                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
                 val widthColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
                 val heightColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+                val dateAddedColumn =
+                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
 
-                while(cursor.moveToNext()) {
+                while (cursor.moveToNext()) {
                     val id = cursor.getLong(idColumn)
                     val displayName = cursor.getString(displayNameColumn)
                     val width = cursor.getInt(widthColumn)
                     val height = cursor.getInt(heightColumn)
-                    val contentUri = ContentUris.withAppendedId(
+                    val dateAdded = cursor.getInt(dateAddedColumn)
+                    val contentUri: Uri = ContentUris.withAppendedId(
                         MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                         id
                     )
-                    photos.add(SharedStoragePhoto(id, displayName, width, height, contentUri))
+                    photos.add(
+                        SharedStoragePhoto(
+                            id,
+                            displayName,
+                            width,
+                            height,
+                            contentUri,
+                            dateAdded
+                        )
+                    )
                 }
                 photos.toList()
             } ?: listOf()
@@ -218,13 +251,13 @@ class MainActivity : AppCompatActivity() {
         writePermissionGranted = hasWritePermission || minSdk29
 
         val permissionsToRequest = mutableListOf<String>()
-        if(!writePermissionGranted) {
+        if (!writePermissionGranted) {
             permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
-        if(!readPermissionGranted) {
+        if (!readPermissionGranted) {
             permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
-        if(permissionsToRequest.isNotEmpty()) {
+        if (permissionsToRequest.isNotEmpty()) {
             permissionsLauncher.launch(permissionsToRequest.toTypedArray())
         }
     }
@@ -244,13 +277,13 @@ class MainActivity : AppCompatActivity() {
             try {
                 contentResolver.insert(imageCollection, contentValues)?.also { uri ->
                     contentResolver.openOutputStream(uri).use { outputStream ->
-                        if(!bmp.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)) {
+                        if (!bmp.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)) {
                             throw IOException("Couldn't save bitmap")
                         }
                     }
                 } ?: throw IOException("Couldn't create MediaStore entry")
                 true
-            } catch(e: IOException) {
+            } catch (e: IOException) {
                 e.printStackTrace()
                 false
             }
@@ -259,12 +292,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupInternalStorageRecyclerView() = binding.rvPrivatePhotos.apply {
         adapter = internalStoragePhotoAdapter
-        layoutManager = StaggeredGridLayoutManager(3, RecyclerView.VERTICAL)
     }
 
     private fun setupExternalStorageRecyclerView() = binding.rvPublicPhotos.apply {
         adapter = externalStoragePhotoAdapter
-        layoutManager = StaggeredGridLayoutManager(3, RecyclerView.VERTICAL)
     }
 
     private fun loadPhotosFromInternalStorageIntoRecyclerView() {
@@ -297,8 +328,9 @@ class MainActivity : AppCompatActivity() {
             val files = filesDir.listFiles()
             files?.filter { it.canRead() && it.isFile && it.name.endsWith(".jpg") }?.map {
                 val bytes = it.readBytes()
+                val dateAdded = it.lastModified() / 1000
                 val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                InternalStoragePhoto(it.name, bmp)
+                InternalStoragePhoto(it.name, bmp, dateAdded)
             } ?: listOf()
         }
     }
@@ -307,12 +339,12 @@ class MainActivity : AppCompatActivity() {
         return withContext(Dispatchers.IO) {
             try {
                 openFileOutput("$filename.jpg", MODE_PRIVATE).use { stream ->
-                    if(!bmp.compress(Bitmap.CompressFormat.JPEG, 95, stream)) {
+                    if (!bmp.compress(Bitmap.CompressFormat.JPEG, 95, stream)) {
                         throw IOException("Couldn't save bitmap.")
                     }
                 }
                 true
-            } catch(e: IOException) {
+            } catch (e: IOException) {
                 e.printStackTrace()
                 false
             }
